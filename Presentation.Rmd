@@ -1,0 +1,342 @@
+---
+title: "Stat. 694 Project - Alameda Crime Data"
+author: "Xiaodan Chen"
+date: "2020/12/04"
+output:
+  ioslides_presentation: default
+  slidy_presentation: default
+  beamer_presentation: default
+smaller: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Agenda
+
+- Dataset
+
+- Trends and Patterns
+
+- Hypothesis Testing (Impact of COVID-19 on Crime Numbers)
+
+- Heatmap in Cities
+
+## Dataset
+
+data.acgov.org - Alameda County Open Data Hub: 
+
+<font size="4">https://data.acgov.org</font> 
+
+<font size="2.5"> 
+
+```{r include=FALSE}
+library(pacman)
+p_load(tidyverse, DT, dygraphs, plotly, lubridate, xts, ggmap, zoo, infer, fpp3)
+crime <- read_csv('Crime_Reports.csv')
+alam <- crime %>% select(DateTime, City, Longitude, Latitude, CrimeDescription, CrimeCode) %>%
+  mutate(City = fct_collapse(City, 'HAYWARD' = c('HAYARD', 'HAWARD'), 
+                             'SAN LEANDRO' = c('SAN LROENZO','SAN LOR','SAN LORENO','SAN  LORENZO', 'SAN LORENAZO', 'SAN  LEANDRO', 'SAN LORENZO', 'SAN LORNEZO'),
+                             'CASTRO VALLEY' = c('CASTRO VALLE', 'CDASTRO VALLEY', 'CASRTO VALLEY', 'CASTRO', 'CATRO VALLEY'),
+                             'LIVERMORE' = c('LIV', 'LIVEMORE', 'LIVERMORWE'),
+                             'OAKLAND' = c('OAKALAND', 'OAKALND'),
+                             'DUBLIN' = c('DUBLOIN', 'DUBLIIN')))
+
+alam$time <- ymd_hms(alam$DateTime)
+alam <- alam %>% mutate(year = year(time), month = as.yearmon(time), date = as.Date.POSIXct(time)) 
+
+ala <- alam %>% 
+  mutate(City=as.character(City)) %>%
+  group_by(City) %>%
+  summarize(n = n(), .groups = 'drop') %>%
+  mutate(city_n = as.factor(ifelse(n > 800, City, 'OTHERS'))) %>%
+  left_join(alam, City = City) 
+```
+
+```{r}
+glimpse(alam)
+```
+</font>
+
+## Trends and Patterns
+
+```{r}
+options(dplyr.summarise.inform = FALSE)
+alame <- ala %>% filter(!is.na(month)) %>%
+                    group_by(month) %>%
+                    summarise(n_crime=n(), .groups = 'drop') %>%
+                    mutate(city_n = 'TOTAL', city_n= as.factor(city_n))
+
+alamed <- ala %>% filter(!is.na(month)) %>%
+                    group_by(month, city_n) %>%
+                    summarise(n_crime=n()) %>% 
+                    mutate(city_n= as.factor(city_n)) %>%
+                    rbind(alame)%>%
+                    filter(month < 'June 2021')
+plot1 <- alamed %>% ggplot(aes(month, n_crime)) +
+  geom_line(aes(col = city_n)) +
+  labs(col = 'city') +
+  ylab('crime number')
+  
+ggplotly(plot1) 
+```
+
+## Trends and Patterns
+
+```{r}
+peak <- tibble(date = c(as.numeric(as.yearmon('2012-12-17')),
+                        as.numeric(as.yearmon('2013-12-18')),
+                        as.numeric(as.yearmon('2014-12-20')),
+                        as.numeric(as.yearmon('2018-12-22')),
+                        as.numeric(as.yearmon('2019-12-20'))))
+
+plot2 <- plot1 + geom_vline(data = peak, aes(xintercept = date), 
+                         linetype = 'dotted', col = 'blue4', size = 0.2) + 
+  geom_text(data = peak, aes(x=date, y = c(2360, 2500, 2340, 2270, 2020),
+                             label = c('2012-12-17', '2013-12-18', '2014-12-20', '2018-12-22', '2019-12-20')), col ='blue4')
+ggplotly(plot2)
+```
+
+---
+
+<div class="footer" style="margin-top:-40px;font-size:80%;">
+<span style="color:black"><font size="6">Time Series for Different CrimeCode</font> </span>
+
+<div class="footer" style="margin-top:30px;font-size:80%;">
+
+<font size="3">999: 72 HOUR MENTAL HEALTH</font>    
+<font size="3">90D: DUI ALCOHOL/DRUGS</font>   
+<font size="3">35A: USE/UNDER INFLUENCE OF CONTROLLED SUBSTANCE</font>
+
+```{r}
+options(dplyr.summarise.inform = FALSE)
+a <- alam %>% group_by(month, CrimeCode) %>%
+  summarise(n_crime=n()) %>%
+  arrange(desc(n_crime)) %>%
+  filter(month < 'June 2021') %>%
+  ggplot(aes(month, n_crime, col = CrimeCode)) +
+  ylab('crime number') +
+  geom_line() +
+  geom_vline(data = peak, aes(xintercept = date), 
+                         linetype = 'dotted', col = 'blue3', size =0.15) + 
+  geom_text(data = peak, aes(x=date, y = c(750, 810, 540, 820, 720),
+                             label = c('2012-12-17', '2013-12-18', '2014-12-20', '2018-12-22', '2019-12-20')), col ='blue4')
+a <- ggplotly(a)
+hide_legend(a)
+```
+
+## Hypothesis Testing 
+
+<span style="color:black"><div class="footer" style="margin-top:80px;font-size:80%;">
+<font size="5">Test 1.   
+
+Impact of Lock Down on Alameda Crime Numbers.  
+<div class="footer" style="margin-top:10px;font-size:80%;">
+(Mar. 17, 2020 - May -22, 2020)
+
+<div class="footer" style="margin-top:80px;font-size:80%;">
+Test 2.    
+
+Impact of COVID-19 on Alameda Crime Numbers.   
+<div class="footer" style="margin-top:10px;font-size:80%;">
+(2020)</font>  
+
+---
+
+<div class="footer" style="margin-top:-15px;font-size:80%;">
+<span style="color:black"><font size="5.6">Test 1 - Impact of Lock Down on Alameda Crime Numbers</font>
+<div class="footer" style="margin-top:20px;font-size:80%;">
+
+```{r}
+period <- tibble(start = c(as.numeric(as.yearmon('2018-03-17')),
+                        as.numeric(as.yearmon('2019-03-17')),
+                        as.numeric(as.yearmon('2020-03-17'))),
+                  end = c(as.numeric(as.yearmon('2018-06-01')),
+                        as.numeric(as.yearmon('2019-06-01')),
+                        as.numeric(as.yearmon('2020-06-01'))),
+                 lab1 = c('Mar. 17','Mar. 17','Mar. 17'),
+                 lab2 = c('May 22, 2018','May 22, 2019','May 22, 2020'))
+
+lockdown <- tibble(date = c(as.numeric(as.yearmon('2020-03-17')), 
+                            as.numeric(as.yearmon('2020-05-22')),
+                            as.numeric(as.yearmon('2018-03-17')), 
+                            as.numeric(as.yearmon('2018-05-22')),
+                            as.numeric(as.yearmon('2019-03-17')), 
+                            as.numeric(as.yearmon('2019-05-22'))))
+                           
+plot1 %+% filter(alamed, month > 'Jan 2018') +
+  geom_vline(data = lockdown, aes(xintercept = date), linetype = 'dotted', col = 'blue4', size = 0.4) +
+  geom_text(aes(x = as.numeric(as.yearmon('2020-04-22')), y = 2050), label = 'Lock down', col = 'blue4', size = 3) +
+  geom_text(data = period, aes(x = start, y =1130, label = lab1), col = 'blue4', size =2.5) +
+  geom_text(data = period, aes(x = end, y =1030, label = lab2), col = 'blue4', size =2.5)
+```
+
+---
+
+<div class="footer" style="margin-top:-25px;font-size:80%;">
+<span style="color:black"><font size="5.6">Test 1 - Impact of Lock Down on Alameda Crime Numbers</font>
+<div class="footer" style="margin-top:40px;font-size:80%;">
+<font size="4">$H_0 : \mu = 53.369$</font>
+<div class="footer" style="margin-top:3px;font-size:80%;">   
+<font size="4">$H_1 : \mu \neq 53.369$</font>
+<div class="footer" style="margin-top:20px;font-size:80%;">  
+<font size="3"> $\mu = 53.369$   
+mean crime number per day, March 17 - May 22, 2012 - 2019.</font>
+
+<font size="3"> $\bar{x} = 39.119$    
+mean crime number per day, March 17 - May 22 (lock down), 2020. </font>
+
+<font size="3"> n = 67 </font>
+
+<span style="color:black">
+
+```{r include=FALSE}
+population_1 <- alam %>% 
+  filter(!is.na(date)) %>%
+  filter(date >= '2012-03-17'& date <= '2012-05-22'|
+         date >= '2013-03-17'& date <= '2013-05-22'|
+         date >= '2014-03-17'& date <= '2014-05-22'|
+         date >= '2015-03-17'& date <= '2015-05-22'|
+         date >= '2016-03-17'& date <= '2016-05-22'|
+         date >= '2017-03-17'& date <= '2017-05-22'|
+         date >= '2018-03-17'& date <= '2018-05-22'|
+         date >= '2019-03-17'& date <= '2019-05-22') %>% 
+  group_by(date) %>%
+  summarise(n_crime=n())
+mu_test1 = mean(population_1$n_crime)
+
+sample_1 <- alam %>% 
+  filter(!is.na(date)) %>%
+  filter(date >= '2020-03-17'& date <= '2020-05-22') %>% 
+  group_by(date) %>%
+  summarise(n_crime=n())
+```
+
+```{r}
+t.test(sample_1$n_crime, mu = mu_test1)
+```
+
+---
+
+<div class="footer" style="margin-top:-25px;font-size:80%;">
+<span style="color:black"><font size="5.6">Test 2 - Impact of COVID-19 on Alameda Crime Numbers, 2020</font> 
+<div class="footer" style="margin-top:40px;font-size:80%;">
+<font size="4">$H_0 : \mu = 54.348$</font> 
+<div class="footer" style="margin-top:3px;font-size:80%;">   
+<font size="4">$H_1 : \mu \neq 54.348$</font>
+<div class="footer" style="margin-top:20px;font-size:80%;">  
+<font size="3"> $\mu = 54.348$   
+mean crime number per day, 2012-01-01 - 2019-12-31.</font>
+
+<font size="3"> $\bar{x} = 44.377$    
+mean crime number per day, 2020-01-01 - 2020-11-27. </font>
+
+<font size="3"> n = 334 </font>
+
+
+```{r}
+population_2 <- alam %>% 
+  filter(!is.na(date)) %>%
+  filter(date < '2020-01-01') %>% 
+  group_by(date) %>%
+  summarise(n_crime=n())
+mu_test2 <- mean(population_2$n_crime)
+
+sample_2 <- alam %>% 
+  filter(!is.na(date)) %>%
+  filter(date >= '2020-01-01') %>% 
+  group_by(date) %>%
+  summarise(n_crime=n())
+```
+
+```{r}
+t.test(sample_2$n_crime, mu=mu_test2)
+```
+
+## Mapping
+
+```{r message=FALSE}
+library(ggmap)
+
+# register_google(key = "AIzaSyCti8SYazuL9WnT6fkP_vheRWGrrkcfAcM", write = TRUE)
+
+base <- get_map('Dublin, CA', zoom = 10, maptype = 'roadmap')
+
+ggmap(base) + 
+  geom_point(data = ala, aes(x=Longitude, y=Latitude, col=city_n), size =0.1) +
+  labs(col = 'city') +
+  ggtitle('Alameda County Crime Events 2012-2020')
+```
+
+## Heatmap in Cities
+
+```{r}
+alameda <- ala %>% 
+  group_by(Longitude, Latitude) %>%
+  summarise(loc_n=n()) %>%
+  arrange(loc_n)
+
+ggmap(base) + 
+  geom_point(data = alameda, aes(x=Longitude, y=Latitude, col = loc_n)) +
+  scale_colour_gradient(high="#132B43", low = "#F8766D") + 
+  labs(col = 'crime number', size ='crime number') +
+  ggtitle('Alameda County Crime Events 2012-2020')
+```
+
+## Heatmap in Hayward
+
+```{r message=FALSE}
+hayward <- ala %>% filter(City == 'HAYWARD',  year == '2020') %>%
+  group_by(Longitude, Latitude) %>%
+  summarise(crime_number=n()) %>%
+  arrange(crime_number)
+
+base_1 <- get_map('Hayward', zoom = 13, maptype = 'roadmap')
+
+b <- ggmap(base_1) + 
+  geom_point(data = hayward, aes(x=Longitude, y=Latitude, col = crime_number)) +
+  labs(col = 'crime number', size ='crime number') +
+  ggtitle('Hayward Crime Events 2020') +
+  scale_colour_gradient(high="black", low = "#00BFC4") 
+
+ggplotly(b)
+```
+
+## Hayward - CrimeCode
+
+```{r message=FALSE}
+hayward <- ala %>% filter(City == 'HAYWARD', month < 'Dec 2020' & month > 'Aug 2020') %>%
+  group_by(Longitude, Latitude, CrimeCode) %>%
+  summarise(crime_number=n()) 
+
+hayward_1 <- hayward %>% filter(CrimeCode == '999')
+hayward_2 <- hayward %>% filter(CrimeCode != '999')
+  
+c <- ggmap(base_1) + 
+  geom_point(data = hayward_1, 
+             aes(x=Longitude, y=Latitude, size = crime_number, col = CrimeCode)) +
+  geom_point(data = hayward_2, 
+             aes(x=Longitude, y=Latitude, size = crime_number, col = CrimeCode)) +
+  ggtitle('Hayward Crime Events (September - November, 2020)') 
+c <- ggplotly(c)
+hide_legend(c)
+```
+
+## Datatable
+
+<font size="2"> 
+
+```{r warning=FALSE}
+sample <- alam %>% sample_n(50)
+datatable(sample)
+```
+</font>
+
+---
+
+<div class="centered" style="margin-top:280px;font-size:170%;">
+<span style="color:black">Thanks!</font>
+
+
+
