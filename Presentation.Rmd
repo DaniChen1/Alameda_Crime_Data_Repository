@@ -1,7 +1,7 @@
 ---
-title: "Stat. 694 Project - Alameda Crime Data"
+title: "Alameda Crime Data"
 author: "Xiaodan Chen"
-date: "2020/12/04"
+date: "2021/06/09"
 output:
   ioslides_presentation: default
   slidy_presentation: default
@@ -133,14 +133,14 @@ hide_legend(a)
 
 Impact of Lock Down on Alameda Crime Numbers.  
 <div class="footer" style="margin-top:10px;font-size:80%;">
-(Mar. 17, 2020 - May -22, 2020)
+(Mar. 17, 2020 - May 22, 2020)
 
 <div class="footer" style="margin-top:80px;font-size:80%;">
 Test 2.    
 
 Impact of COVID-19 on Alameda Crime Numbers.   
 <div class="footer" style="margin-top:10px;font-size:80%;">
-(2020)</font>  
+(Jan. 1, 2020 - May 31, 2021)</font>  
 
 ---
 
@@ -179,12 +179,12 @@ plot1 %+% filter(alamed, month > 'Jan 2018') +
 <div class="footer" style="margin-top:40px;font-size:80%;">
 <font size="4">$H_0 : \mu = 53.37$</font>
 <div class="footer" style="margin-top:3px;font-size:80%;">   
-<font size="4">$H_1 : \mu \neq 53.37$</font>
+<font size="4">$H_1 : \mu \neq 53.377$</font>
 <div class="footer" style="margin-top:20px;font-size:80%;">  
-<font size="3"> $\mu = 53.369$   
+<font size="3"> $\mu = 53.377$   
 mean crime number per day, March 17 - May 22, 2012 - 2019.</font>
 
-<font size="3"> $\bar{x} = 39.119$    
+<font size="3"> $\bar{x} = 39.134$    
 mean crime number per day, March 17 - May 22 (lock down), 2020. </font>
 
 <font size="3"> n = 67 </font>
@@ -220,17 +220,17 @@ t.test(sample_1$n_crime, mu = mu_test1)
 ---
 
 <div class="footer" style="margin-top:-25px;font-size:80%;">
-<span style="color:black"><font size="5.6">Test 2 - Impact of COVID-19 on Alameda Crime Numbers, 2020</font> 
+<span style="color:black"><font size="5.6">Test 2 - Impact of COVID-19 on Alameda Crime Numbers</font> 
 <div class="footer" style="margin-top:40px;font-size:80%;">
-<font size="4">$H_0 : \mu = 54.348$</font> 
+<font size="4">$H_0 : \mu = 54.357$</font> 
 <div class="footer" style="margin-top:3px;font-size:80%;">   
-<font size="4">$H_1 : \mu \neq 54.348$</font>
+<font size="4">$H_1 : \mu \neq 54.357$</font>
 <div class="footer" style="margin-top:20px;font-size:80%;">  
-<font size="3"> $\mu = 54.348$   
+<font size="3"> $\mu = 54.357$   
 mean crime number per day, 2012-01-01 - 2019-12-31.</font>
 
-<font size="3"> $\bar{x} = 44.377$    
-mean crime number per day, 2020-01-01 - 2020-11-27. </font>
+<font size="3"> $\bar{x} = 44.157$    
+mean crime number per day, 2020-01-01 - 2021-05-31. </font>
 
 <font size="3"> n = 334 </font>
 
@@ -245,7 +245,7 @@ mu_test2 <- mean(population_2$n_crime)
 
 sample_2 <- alam %>% 
   filter(!is.na(date)) %>%
-  filter(date >= '2020-01-01') %>% 
+  filter(date >= '2020-01-01' & date <= '2021-05-31') %>% 
   group_by(date) %>%
   summarise(n_crime=n())
 ```
@@ -278,7 +278,7 @@ alameda <- ala %>%
   arrange(loc_n)
 
 ggmap(base) + 
-  geom_point(data = alameda, aes(x=Longitude, y=Latitude, col = loc_n)) +
+  geom_point(data = alameda, aes(x=Longitude, y=Latitude, col = loc_n, size = loc_n)) +
   scale_colour_gradient(high="#132B43", low = "#F8766D") + 
   labs(col = 'crime number', size ='crime number') +
   ggtitle('Alameda County Crime Events 2012-2020')
@@ -295,7 +295,7 @@ hayward <- ala %>% filter(City == 'HAYWARD',  year == '2020') %>%
 base_1 <- get_map('Hayward', zoom = 13, maptype = 'roadmap')
 
 b <- ggmap(base_1) + 
-  geom_point(data = hayward, aes(x=Longitude, y=Latitude, col = crime_number)) +
+  geom_point(data = hayward, aes(x=Longitude, y=Latitude, col = crime_number, size = crime_number)) +
   labs(col = 'crime number', size ='crime number') +
   ggtitle('Hayward Crime Events 2020') +
   scale_colour_gradient(high="black", low = "#00BFC4") 
