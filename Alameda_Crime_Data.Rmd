@@ -1,0 +1,553 @@
+---
+title: "Alameda Crime Events"
+author: "Xiaodan Chen"
+date: "2021/06/09"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+## Introduction
+
+In this project, I used time series method to find out the trends and patterns of Alameda county crime events from January 2012 to May 2021. Base on these data, I forecast the Alameda crime number in one year using ARIMA model. I also used T-Test and bootstrap method to test if there is any significant impact of COVID-19 on the number of Alameda crime events. At the last part, I made some heatmaps to show every crime event from the data on the map, and figured out if any cities or specific locations have more crime events, and found out any types of crime occurred more frequently in any specific locations. 
+
+The data is downloaded from Alameda County Open Data Hub: *https://hub.arcgis.com/datasets/9e459776d4c3463cad52fe6003ffc668_0/about*
+
+```{r message=FALSE}
+library(pacman)
+p_load(tidyverse, DT, dygraphs, plotly, lubridate, xts, ggmap, zoo, infer, fpp3)
+```
+
+### Access data.
+
+```{r, message=FALSE, warning=FALSE}
+crime <- read_csv('Crime_Reports.csv')
+tail(crime)
+```
+
+### Cleaning data.
+
+Changing the value of City into ‘OTHERS’ for those crime numbers are less than 800.
+
+```{r, message=FALSE}
+alam <- crime %>% select(DateTime, City, Longitude, Latitude, CrimeDescription, CrimeCode) %>%
+  mutate(City = fct_collapse(City, 'HAYWARD' = c('HAYARD', 'HAWARD'), 
+                             'SAN LEANDRO' = c('SAN LROENZO','SAN LOR','SAN LORENO','SAN  LORENZO', 'SAN LORENAZO', 'SAN  LEANDRO', 'SAN LORENZO', 'SAN LORNEZO'),
+                             'CASTRO VALLEY' = c('CASTRO VALLE', 'CDASTRO VALLEY', 'CASRTO VALLEY', 'CASTRO', 'CATRO VALLEY'),
+                             'LIVERMORE' = c('LIV', 'LIVEMORE', 'LIVERMORWE'),
+                             'OAKLAND' = c('OAKALAND', 'OAKALND'),
+                             'DUBLIN' = c('DUBLOIN', 'DUBLIIN')))
+
+alam$time <- ymd_hms(alam$DateTime)
+alam <- alam %>% mutate(year = year(time), month = as.yearmon(time), date = as.Date.POSIXct(time)) 
+
+ala <- alam %>% 
+  mutate(City=as.character(City)) %>%
+  group_by(City) %>%
+  summarize(n = n(), .groups = 'drop') %>%
+  mutate(city_n = as.factor(ifelse(n > 800, City, 'OTHERS'))) %>%
+  left_join(alam, City = City) 
+
+glimpse(ala)
+```
+
+## Trends and Patterns
+
+#### Time series of the total number of crimes for Alameda county and each cities from January 2012 to May 2021.
+
+```{r, message=FALSE}
+# options(dplyr.summarise.inform = FALSE)
+alame <- ala %>% filter(!is.na(month)) %>%
+                    group_by(month) %>%
+                    summarise(n_crime=n(), .groups = 'drop') %>%
+                    mutate(city_n = 'TOTAL', city_n= as.factor(city_n)) 
+
+alamed <- ala %>% filter(!is.na(month)) %>%
+                    group_by(month, city_n) %>%
+                    summarise(n_crime=n()) %>% 
+                    mutate(city_n= as.factor(city_n)) %>%
+                    rbind(alame) %>%
+  filter(month < 'June 2021')
+
+plot1 <- alamed %>% ggplot(aes(month, n_crime)) +
+                 geom_line(aes(col = city_n)) +
+  labs(col = 'city') 
+ggplotly(plot1)
+```
+
+#### Indicating the exact date of the peaks.
+
+```{r}
+peak <- tibble(date = c(as.numeric(as.yearmon('2012-12-17')),
+                        as.numeric(as.yearmon('2013-12-18')),
+                        as.numeric(as.yearmon('2014-12-20')),
+                        as.numeric(as.yearmon('2018-12-22')),
+                        as.numeric(as.yearmon('2019-12-20')),
+                        as.numeric(as.yearmon('2020-12-20'))))
+
+plot2 <- plot1 + geom_vline(data = peak, aes(xintercept = date), 
+                         linetype = 'dotted', col = 'blue4') + 
+  geom_text(data = peak, aes(x=date, y = c(2360, 2500, 2340, 2270, 2020, 1700),
+                             label = c('2012-12-17', '2013-12-18', '2014-12-20', 
+                                       '2018-12-22', '2019-12-20', '2020-12-20')), col ='blue4')
+ggplotly(plot2)
+```
+
+#### Crime Description
+
+*Time series of different CrimeCode*
+
+999: 72 HOUR MENTAL HEALTH / A PERSON WILLFULLY FLEES OR ATEMPTS TO ELUDE AN OFFICER
+
+90D: DUI ALCOHOL/DRUGS
+
+35A: USE/UNDER INFLUENCE OF CONTROLLED SUBSTANCE
+
+```{r, message=FALSE}
+options(dplyr.summarise.inform = FALSE)
+a <- alam %>% group_by(month, CrimeCode) %>%
+  summarise(n_crime=n()) %>%
+  filter(month < 'June 2021') %>%
+  ggplot(aes(month, n_crime, col = CrimeCode)) +
+  geom_line() 
+a <- ggplotly(a)
+hide_legend(a)
+```
+
+## Forecasting 
+
+#### Making a forecast for Alameda County Total Crime Number in 2 years.
+
+```{r}
+ts <- alame %>% 
+  select(month, n_crime) %>%
+  filter(month < 'June 2021') %>%
+  mutate(month = yearmonth(month)) %>%
+  as_tsibble(index = month)
+head(ts, n = 3)
+```
+
+#### Time series of Alameda County Total Crime Number from January 2012 to May 2021.
+
+```{r message=FALSE}
+ts %>% autoplot(col = 'blue4')
+```
+
+#### Determining whether differencing is required using *unitroot_kpss()* test.
+
+```{r}
+ts %>%
+  features(n_crime, unitroot_kpss)
+```
+
+The p-value is less than 0.05, indicating that the null hypothesis is rejected. That is, the data are not stationary. We can difference the data, and apply the test again.
+
+```{r}
+ts %>%
+  mutate(diff_n_crime = difference(n_crime)) %>%
+  features(diff_n_crime, unitroot_kpss)
+```
+#### Determining the appropriate *number* of first differences is carried out using the *unitroot_ndiffs()* feature.
+
+```{r}
+ts %>%
+  features(n_crime, unitroot_ndiffs)
+```
+#### Determining whether seasonal differencing is required using *unitroot_nsdiffs()* function.
+
+```{r}
+ts %>%
+  mutate(log_n_crime = log(n_crime)) %>%
+  features(log_n_crime, unitroot_nsdiffs)
+```
+
+```{r, warning=FALSE}
+ts %>%
+  transmute(
+    `Value` = n_crime,
+    `Log Value` = log(n_crime),       
+    `Annual change in log value` = difference(log(n_crime), 1)) %>%       
+  pivot_longer(-month, names_to="data_type", values_to="data") %>% 
+  mutate(
+    data_type = as.factor(data_type)) %>%
+  ggplot(aes(x = month, y = data)) +
+  geom_line() +
+  facet_grid(vars(data_type), scales = "free_y") 
+```
+
+#### Comparing ARIMA() and ETS() model.
+
+```{r}
+train <- ts %>% 
+  filter_index(. ~ "2018-12-31")
+```
+
+*ARIMA()*
+
+```{r}
+fit_arima <- train %>% model(ARIMA(log(n_crime)))
+report(fit_arima)
+
+fit_arima %>% gg_tsresiduals(lag_max = 16)
+```
+```{r}
+augment(fit_arima) %>%
+  features(.innov, ljung_box, lag = 16, dof = 6)
+```
+
+*ETC()*
+
+```{r}
+fit_ets <- train %>% model(ETS(log(n_crime)))
+report(fit_ets)
+
+fit_ets %>%
+  gg_tsresiduals(lag_max = 16)
+```
+```{r}
+augment(fit_ets) %>%
+  features(.innov, ljung_box, lag = 16, dof = 6)
+```
+
+The output below evaluates the forecasting performance of the two competing models over the train and test set. The ARIMA model seems to be the slightly more accurate model based on the test set RMSE, MAPE and MASE.
+
+```{r}
+bind_rows(
+    fit_arima %>% accuracy(),
+    fit_ets %>% accuracy(),
+    fit_arima %>% forecast(h = "1 years") %>%
+      accuracy(ts),
+    fit_ets %>% forecast(h = "1 years") %>%
+      accuracy(ts)
+  ) %>%
+  select(-ME, -MPE, -ACF1)
+```
+
+#### Generating and ploting forecasts from the ARIMA model for the next 3 years.
+
+```{r}
+value_fc <- ts %>%
+  model(ARIMA(n_crime)) %>%
+  forecast(h="1 years") %>% 
+  hilo(level = c(80, 95)) 
+value_fc %>% head(n = 5)
+```
+
+```{r}
+ts %>%
+  model(ARIMA(n_crime)) %>%
+  forecast(h="1 years") %>%
+  autoplot(ts)
+```
+
+## Hypothesis Testing 
+
+Due to the Covid-19 pandemic since 2020, cities are locked down, and most people stay home. Therefore, I hypothesize that the crime numbers should have decreased a lot. I used the traditional t-test and bootstrap method to test whether the Covid-19 pandemic has a significant impact on the Alameda crime numbers. To be more specific, whether the crime number in Alameda county has significantly decreased during the Covid-19 pandemic. I will also calculate the 95% confidence interval of the average crime numbers per day in Alameda using the bootstrap method of the infer package.
+
+
+### Traditional Approach
+
+#### Test 1: Impact of Lock Down (March 17, 2020 - May 22, 2020) on Alameda Crime Numbers.
+
+I assumed the crime number during lockdown should be less than the same period of time in the other years, according to the plot below. 
+
+```{r}
+lockdown <- tibble(date = c(as.numeric(as.yearmon('2020-03-17')), 
+                            as.numeric(as.yearmon('2020-05-22')),
+                            as.numeric(as.yearmon('2018-03-17')), 
+                            as.numeric(as.yearmon('2018-05-22')),
+                            as.numeric(as.yearmon('2019-03-17')), 
+                            as.numeric(as.yearmon('2019-05-22'))))
+                           
+plot1 %+% filter(alamed, month > 'Jan 2018') +
+  geom_vline(data = lockdown, aes(xintercept = date), linetype = 'dotted', col = 'blue4') +
+  geom_text(aes(x =  as.numeric(as.yearmon('2020-04-22')), y = 2050), 
+            label = 'Lock down', col = 'blue4', size = 3)
+```
+
+#### $H_0 : \mu = 53.377$     
+#### $H_1 : \mu \neq 53.377$
+
+Population: The daily crime number from March 17 to May 22, 2012 - 2019.    
+$\mu = 53.377$
+
+Sample : The daily crime number from March 17 to May 22, 2020 (lock down).    
+$\bar{x} = 39.134$     
+Sample size: 67
+
+Since the p-value is very small and the values in the 95% confident interval are all smaller than $\mu$, I rejected the null hypothesis and concluded the crime number during lockdown was significantly less than the same period of time in the years before.
+
+```{r}
+options(dplyr.summarise.inform = FALSE)
+population_1 <- alam %>% 
+  filter(!is.na(date)) %>%
+  filter(date >= '2012-03-17'& date <= '2012-05-22'|
+         date >= '2013-03-17'& date <= '2013-05-22'|
+         date >= '2014-03-17'& date <= '2014-05-22'|
+         date >= '2015-03-17'& date <= '2015-05-22'|
+         date >= '2016-03-17'& date <= '2016-05-22'|
+         date >= '2017-03-17'& date <= '2017-05-22'|
+         date >= '2018-03-17'& date <= '2018-05-22'|
+         date >= '2019-03-17'& date <= '2019-05-22') %>% 
+  group_by(date) %>%
+  summarise(n_crime=n())
+
+mu_test1 = mean(population_1$n_crime)
+
+sample_1 <- alam %>% 
+  filter(!is.na(date)) %>%
+  filter(date >= '2020-03-17'& date <= '2020-05-22') %>% 
+  group_by(date) %>%
+  summarise(n_crime=n())
+
+t.test(sample_1$n_crime, mu=mu_test1)
+```
+
+#### Test 2: Impact of Covid-19 (January 1, 2020 - May 31, 2021) on Alameda Crime Numbers.
+
+#### $H_0 : \mu = 54.357$    
+#### $H_1 : \mu \neq 54.357$
+
+Population: The daily crime number from January 1, 2012 to December 31, 2019.    
+$\mu = 54.357$
+
+Sample : The daily crime number from January 1, 2020 to May 31, 2021.     
+$\bar{x} = 44.157$    
+Sample size: 517
+
+Since the p-value is very small and the values in the 95% confident interval are all smaller than $\mu$, I rejected the null hypothesis and concluded the crime number during Covid-19 pandemic in 2020 is significantly less than the other years.
+
+```{r}
+options(dplyr.summarise.inform = FALSE)
+population_2 <- alam %>% 
+  filter(!is.na(date)) %>%
+  filter(date < '2020-01-01') %>% 
+  group_by(date) %>%
+  summarise(n_crime=n())
+
+mu_test2 <- mean(population_2$n_crime)
+
+sample_2 <- alam %>% 
+  filter(!is.na(date)) %>%
+  filter(date >= '2020-01-01' & date <= '2021-05-31') %>% 
+  group_by(date) %>%
+  summarise(n_crime=n()) 
+
+t.test(sample_2$n_crime, mu=mu_test2)
+```
+
+### Bootstrap Approach
+
+#### Calculating the 95% CI.
+
+```{r}
+x_bar <- sample_2 %>% 
+  summarise(x_bar = mean(n_crime)) %>%
+  as.numeric()
+x_bar
+```
+
+```{r}
+str(sample_2)
+```
+
+The histogram and box-plot show the data are normally distributed. And the sample size is 517 (not small). Therefore the methods of calculating a 95% confidence interval would not be too constrained. 
+
+```{r echo=FALSE, fig.width=9, fig.height=4.5}
+par(mfrow = c(1,2))
+hist(sample_2$n_crime, col = 'lightblue', main = NULL, xlab = 'Crimes per Day')
+boxplot(sample_2$n_crime, horizontal = TRUE, xlab = 'Crimes per Day', col = 'lightblue')
+
+mtext('Original Example', outer = TRUE, line = -2, cex = 1)
+```
+
+Calculating using the *infer* package, the 95% confidence interval of $\mu$ is from 43.0367 to 45.263, which are all smaller than the $\mu$ (53.12). Since the sample distribution is quite normal and the sample size is not small, I simply use the *percentile* method to calculate. 
+
+```{r, echo=FALSE, fig.width=5.5, fig.height=3}
+set.seed(999) 
+bootstrap_distribution <- sample_2 %>%
+  specify(response = n_crime) %>%
+  infer::generate(reps = 5000, type = 'bootstrap') %>% 
+  calculate(stat = 'mean')
+
+percentile_ci <- bootstrap_distribution %>%
+  get_confidence_interval(level = 0.95, type = 'percentile')
+
+visualize(bootstrap_distribution) +
+  shade_confidence_interval(endpoints = percentile_ci, 
+                            color = 'lightblue', fill = 'lightblue')
+```
+
+```{r echo=FALSE}
+cat('The 95% CI is (', percentile_ci$lower_ci, percentile_ci$upper_ci,').')
+```
+
+#### Two side test: Impact of Covid-19 (January 1, 2020 - May 31, 2021) on Alameda Crime Numbers.
+
+This is a one sample hypothesis testing. The population mean $\mu$ is 54.357. And I want to test whether the sample mean is equaling to 54.357 by using the bootstrap method. I create the estimated null distribution and select 5000 bootstrap samples (with replacement for each bootstrap sample) from the estimated null distribution. Then compute the test statistic for each bootstrap sample and compare them to the test statistic of the observed sample. And check the p-value: the probability of getting test statistic for bootstrap samples are as extreme or more extreme than the test statistic of the observed sample.   
+
+#### $H_o: \mu = 54.357$
+
+#### $H_A: \mu \not= 54.357$
+
+Test statistic using the observed sample.
+
+```{r echo=FALSE}
+n_crime <- sample_2$n_crime
+n <- sample_2 %>% nrow()
+t_obser <- sqrt(n) * (mean(n_crime) - mu_test2) / sd(n_crime)
+t_obser
+```
+
+P-value:
+
+```{r echo=FALSE}
+set.seed(1234)
+c_shift <- n_crime -  mean(n_crime) + mu_test2
+bootsamle <- matrix(sample(c_shift, n * 5000,
+                           replace = TRUE), nrow = 5000)
+mean_boot <- apply(bootsamle, 1, mean)
+sd_boot <- apply(bootsamle, 1, sd)
+t_boot <- sqrt(n)*(mean_boot - 60)/sd_boot
+
+lwd <- length(t_boot[t_boot <= t_obser])/5000
+upr <- length(t_boot[t_boot >= t_obser])/5000
+
+p_value_twoside <- 2*min(lwd, upr)
+p_value_twoside
+```
+
+The p-value is very small (close to), so I reject the null hypothesis.  
+
+#### One side: Impact of Covid-19 (January 1, 2020 - May 31, 2021) on Alameda Crime Numbers.
+
+I also want to test whether the sample mean is less than $\mu$ (54.357). The process is very similar to the two side test except for last step getting the  p-value: the probability of getting test statistic for bootstrap samples are smaller than the test statistic of the observed sample. 
+
+#### $H_o: \mu = 54.357$
+
+#### $H_A: \mu < 54.357$
+
+One sample t-test for conparison.
+```{r echo=FALSE}
+t.test(n_crime, mu = mu_test2, alternative = 'less')
+```
+
+P-value:
+
+```{r echo=FALSE}
+c_shift_o <- n_crime - mean(n_crime) + mu_test2
+bootsamle_o <- matrix(sample(c_shift_o, n*5000,
+                           replace = TRUE), nrow = 5000)
+mean_boot_o <- apply(bootsamle_o, 1, mean)
+sd_boot_o <- apply(bootsamle_o, 1, sd)
+t_boot_o <- sqrt(n)*(mean_boot_o - 60)/sd_boot_o
+lwd_o <- length(t_boot_o[t_boot_o <= t_obser])/5000
+upr_o <- length(t_boot_o[t_boot_o >= t_obser])/5000
+p_value_oneside <- min(lwd_o, upr_o)
+p_value_oneside
+```
+
+Again, the p-value is very small, so I reject the null hypothesis.  
+
+### Conclusion:
+
+Since all the p-values are smaller than 0.05, I reject the null hypothesis and conclude that the Covid-19 has a significant impact on the Alameda crime numbers. It significantly decreased the daily crime numbers in Alameda.    
+
+## Mapping
+
+All the crime events in different cities shown on the map.
+
+```{r, include=FALSE}
+# register_google(key = "AIzaSyA9Sqm5lAbIWGvnYlhLKSfg165UE5CY7MI", write = TRUE)
+```
+
+
+```{r message=FALSE}
+base <- get_map('Dublin, CA', zoom = 10, maptype = 'roadmap')
+
+ggmap(base) + 
+  geom_point(data = ala, aes(x=Longitude, y=Latitude, col=city_n), size =0.1) +
+  ggtitle('Alameda County Crime Events 2012-2020')
+```
+
+### Heatmap in Cities
+
+```{r message=FALSE}
+options(dplyr.summarise.inform = FALSE)
+alameda <- ala %>% 
+  group_by(Longitude, Latitude) %>%
+  summarise(loc_n=n()) %>%
+  arrange(loc_n)
+
+ggmap(base) + 
+  geom_point(data = alameda, aes(x=Longitude, y=Latitude, col = loc_n, size = loc_n)) +
+  scale_colour_gradient(high="#132B43", low = "#F8766D") +
+  ggtitle('Alameda County Crime Events 2012-2020')
+```
+
+### Heatmap in Hayward
+
+```{r message=FALSE}
+options(dplyr.summarise.inform = FALSE)
+
+hayward <- ala %>% filter(City == 'HAYWARD', year == '2021') %>%
+  group_by(Longitude, Latitude) %>%
+  summarise(location_n=n()) %>%
+  arrange(location_n)
+
+base_1 <- get_map('Hayward, CA', zoom = 13, maptype = 'roadmap')
+
+b <- ggmap(base_1) + 
+  geom_point(data = hayward, aes(x=Longitude, y=Latitude, col = location_n, size = location_n)) +
+  scale_colour_gradient(high="black", low = "#00BFC4") +
+  ggtitle('Hayward Crime Events January - May, 2021') 
+
+ggplotly(b)
+```
+
+### Hayward-CrimeCode
+
+```{r}
+options(dplyr.summarise.inform = FALSE)
+hayward <- ala %>% filter(City == 'HAYWARD', year == '2021') %>%
+  group_by(Longitude, Latitude, CrimeCode) %>%
+  summarise(crime_number=n()) 
+
+hayward_1 <- hayward %>% filter(CrimeCode == '999')
+hayward_2 <- hayward %>% filter(CrimeCode != '999')
+  
+c <- ggmap(base_1) + 
+  geom_point(data = hayward_1, 
+             aes(x=Longitude, y=Latitude, size = crime_number, col = CrimeCode)) +
+  geom_point(data = hayward_2, 
+             aes(x=Longitude, y=Latitude, size = crime_number, col = CrimeCode)) +
+  ggtitle('Hayward Crime Events (January - May, 2021)') 
+c <- ggplotly(c)
+hide_legend(c)
+```
+
+### The datatable help us to search the relative information about each CrimeCode.
+
+```{r warning=FALSE}
+datatable(alam)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
