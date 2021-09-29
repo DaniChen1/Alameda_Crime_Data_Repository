@@ -177,9 +177,9 @@ plot1 %+% filter(alamed, month > 'Jan 2018') +
 <div class="footer" style="margin-top:-25px;font-size:80%;">
 <span style="color:black"><font size="5.6">Test 1 - Impact of Lock Down on Alameda Crime Numbers</font>
 <div class="footer" style="margin-top:40px;font-size:80%;">
-<font size="4">$H_0 : \mu = 53.369$</font>
+<font size="4">$H_0 : \mu = 53.37$</font>
 <div class="footer" style="margin-top:3px;font-size:80%;">   
-<font size="4">$H_1 : \mu \neq 53.369$</font>
+<font size="4">$H_1 : \mu \neq 53.37$</font>
 <div class="footer" style="margin-top:20px;font-size:80%;">  
 <font size="3"> $\mu = 53.369$   
 mean crime number per day, March 17 - May 22, 2012 - 2019.</font>
